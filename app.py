@@ -1,117 +1,136 @@
+import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from src.database import query_dataframe
-from src.filters import purchase_date_range
+from src.api import api_get
+from src.filters import date_params, purchase_date_range, sales_status_filter
+from src.transform import add_month_start, grand_total, level_frame
 from src.ui import configure_page, format_number, render_data_error
 
 
 configure_page("Olist DW Dashboard", "📦")
 st.title("Olist Data Warehouse Dashboard")
-st.caption("Executive overview of sales value, delivery quality, and customer reviews")
+st.caption("Tổng quan OLAP về bán hàng, giao hàng và đánh giá khách hàng")
 
 try:
-    date_from, date_to = purchase_date_range()
-    params = {"date_from": date_from, "date_to": date_to}
+    health = api_get("/api/v1/health")
+    health_status = health.get("data", {}).get("status", "unknown")
+    st.sidebar.success(f"API: {health_status}")
 
-    sales = query_dataframe(
-        """
-        SELECT
-            COALESCE(SUM(item_value), 0) AS item_value,
-            COALESCE(SUM(freight_value), 0) AS freight_value,
-            COALESCE(SUM(item_count), 0) AS item_count,
-            COUNT(DISTINCT order_id) AS order_count
-        FROM analytics.v_sales_detail
-        WHERE purchase_date BETWEEN :date_from AND :date_to
-        """,
-        params,
-    ).iloc[0]
-    delivery = query_dataframe(
-        """
-        SELECT
-            COUNT(*) FILTER (WHERE is_delivery_eligible) AS eligible_orders,
-            COUNT(*) FILTER (WHERE is_delivery_eligible AND is_delayed) AS delayed_orders,
-            ROUND(100.0 * COUNT(*) FILTER (
-                WHERE is_delivery_eligible AND is_delayed
-            ) / NULLIF(COUNT(*) FILTER (
-                WHERE is_delivery_eligible
-            ), 0), 2) AS delayed_rate_pct,
-            ROUND(AVG(delivery_days) FILTER (
-                WHERE is_delivery_eligible
-            )::numeric, 2) AS avg_delivery_days
-        FROM analytics.v_delivery_detail
-        WHERE purchase_date BETWEEN :date_from AND :date_to
-        """,
-        params,
-    ).iloc[0]
-    reviews = query_dataframe(
-        """
-        SELECT ROUND(AVG(review_score)::numeric, 2) AS avg_review_score
-        FROM analytics.v_review_delivery_detail
-        WHERE purchase_date BETWEEN :date_from AND :date_to
-        """,
-        params,
-    ).iloc[0]
+    date_from, date_to = purchase_date_range()
+    statuses = sales_status_filter()
+    if not statuses:
+        st.sidebar.warning("Chọn ít nhất một trạng thái đơn hàng.")
+        st.stop()
+
+    base_params = date_params(date_from, date_to)
+    sales_params = {
+        **base_params,
+        "dim": "time",
+        "depth": 3,
+        "status": ",".join(statuses),
+    }
+    delivery_params = {**base_params, "dim": "time", "depth": 3}
+
+    sales_payload = api_get("/api/v1/sale/analysis", sales_params)
+    delivery_payload = api_get("/api/v1/delivery/analysis", delivery_params)
+    distribution = api_get("/api/v1/delivery/distribution", delivery_params)
+    reviews = api_get(
+        "/api/v1/reviews/by-delay", {**base_params, "group": "flag"}
+    )
+
+    sales_total = grand_total(sales_payload)
+    delivery_total = grand_total(delivery_payload)
+    review_rows = {row["group"]: row for row in reviews.get("data", [])}
 
     first = st.columns(4)
-    first[0].metric("Item value", format_number(sales["item_value"], 2))
-    first[1].metric("Freight value", format_number(sales["freight_value"], 2))
-    first[2].metric("Distinct orders", format_number(sales["order_count"]))
-    first[3].metric("Items", format_number(sales["item_count"]))
+    first[0].metric("Giá trị mặt hàng", format_number(sales_total.get("total_price"), 2))
+    first[1].metric("Phí vận chuyển", format_number(sales_total.get("total_freight"), 2))
+    first[2].metric("Số đơn phân biệt", format_number(sales_total.get("n_orders")))
+    first[3].metric("Số mặt hàng", format_number(sales_total.get("n_items")))
+
     second = st.columns(4)
-    second[0].metric("Eligible deliveries", format_number(delivery["eligible_orders"]))
-    second[1].metric("Delayed orders", format_number(delivery["delayed_orders"]))
+    second[0].metric(
+        "Đơn đủ điều kiện", format_number(delivery_total.get("eligible_orders"))
+    )
+    second[1].metric(
+        "Tỷ lệ giao trễ",
+        f"{format_number(distribution.get('summary', {}).get('late_rate'), 2)}%",
+    )
     second[2].metric(
-        "Delayed rate",
-        f"{format_number(delivery['delayed_rate_pct'], 2)}%",
+        "Điểm review khi trễ",
+        format_number(review_rows.get("late", {}).get("avg_score"), 2),
     )
     second[3].metric(
-        "Average review",
-        format_number(reviews["avg_review_score"], 2),
+        "Điểm review khi không trễ",
+        format_number(review_rows.get("not_late", {}).get("avg_score"), 2),
     )
 
-    monthly = query_dataframe(
-        """
-        SELECT
-            DATE_TRUNC('month', purchase_date)::date AS month,
-            SUM(item_value) AS item_value,
-            COUNT(DISTINCT order_id) AS orders
-        FROM analytics.v_sales_detail
-        WHERE purchase_date BETWEEN :date_from AND :date_to
-        GROUP BY DATE_TRUNC('month', purchase_date)::date
-        ORDER BY month
-        """,
-        params,
+    sales_monthly = add_month_start(level_frame(sales_payload, 3))
+    delivery_monthly = add_month_start(level_frame(delivery_payload, 3))
+    category_payload = api_get(
+        "/api/v1/sale/analysis",
+        {
+            **base_params,
+            "dim": "product",
+            "depth": 1,
+            "status": ",".join(statuses),
+        },
     )
-    categories = query_dataframe(
-        """
-        SELECT
-            COALESCE(product_category, 'Unknown') AS product_category,
-            SUM(item_value) AS item_value
-        FROM analytics.v_sales_detail
-        WHERE purchase_date BETWEEN :date_from AND :date_to
-        GROUP BY COALESCE(product_category, 'Unknown')
-        ORDER BY item_value DESC
-        LIMIT 10
-        """,
-        params,
-    )
+    categories = level_frame(category_payload, 1).nlargest(10, "total_price")
+    buckets = pd.DataFrame(distribution.get("data", []))
+
     left, right = st.columns(2)
     left.plotly_chart(
-        px.line(monthly, x="month", y="item_value", markers=True,
-                title="Monthly item value"),
-        use_container_width=True,
+        px.line(
+            sales_monthly,
+            x="month_start",
+            y="total_price",
+            markers=True,
+            title="Giá trị mặt hàng theo tháng",
+            labels={"month_start": "Tháng", "total_price": "Giá trị mặt hàng"},
+        ),
+        width="stretch",
     )
     right.plotly_chart(
-        px.bar(categories.sort_values("item_value"), x="item_value",
-               y="product_category", orientation="h",
-               title="Top product categories"),
-        use_container_width=True,
+        px.line(
+            delivery_monthly,
+            x="month_start",
+            y="late_rate",
+            markers=True,
+            title="Tỷ lệ giao trễ theo tháng",
+            labels={"month_start": "Tháng", "late_rate": "Tỷ lệ trễ (%)"},
+        ),
+        width="stretch",
+    )
+
+    left, right = st.columns(2)
+    left.plotly_chart(
+        px.bar(
+            categories.sort_values("total_price"),
+            x="total_price",
+            y="category",
+            orientation="h",
+            title="10 danh mục có giá trị mặt hàng cao nhất",
+            labels={"total_price": "Giá trị mặt hàng", "category": "Danh mục"},
+        ),
+        width="stretch",
+    )
+    right.plotly_chart(
+        px.bar(
+            buckets,
+            x="label",
+            y="n_orders",
+            color="side",
+            title="Phân phối độ trễ giao hàng",
+            labels={"label": "Nhóm giao hàng", "n_orders": "Số đơn"},
+        ),
+        width="stretch",
     )
 
     st.info(
-        "Use the pages in the sidebar for seller, delivery, review, and "
-        "decision-support analysis. Item value is not profit or net revenue."
+        "Giá trị mặt hàng là SUM(price), không phải lợi nhuận hoặc doanh thu thuần. "
+        "KPI giao hàng chỉ tính các đơn đủ điều kiện."
     )
 except Exception as exc:
     render_data_error(exc)

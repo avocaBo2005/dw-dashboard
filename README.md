@@ -1,37 +1,61 @@
 # Olist Data Warehouse Dashboard
 
-Separate Streamlit UI and OLAP contract for the CO4031 Olist data warehouse.
-The dashboard consumes PostgreSQL data produced by the DW/ETL repository; it
-does not read source CSV files directly.
+Streamlit dashboard cho bài tập lớn CO4031. Repo UI gọi OLAP API trong repo
+backend; UI không đọc CSV và không kết nối PostgreSQL trực tiếp.
 
-## Features
+## Chức năng
 
-- Executive overview with sales, delivery, and review KPIs.
-- Sales analysis by time, product category, seller, and seller state.
-- Delivery and review analysis by purchase time and customer state.
-- Rule-based decision-support page for prioritizing risky segments.
-- PostgreSQL OLAP examples using roll-up, cube, slice, dice, and pivot-like
-  conditional aggregation.
+- Tổng quan KPI sales, delivery và review.
+- OLAP sales theo hierarchy thời gian, seller geography và product.
+- Delivery OLAP theo thời gian và customer geography.
+- Phân phối giao sớm/đúng hạn/trễ và review theo độ trễ.
+- DSS rule-based ưu tiên customer state cần điều tra.
+- Trang đánh giá API, đối soát KPI và đo thời gian phản hồi.
 
-## Prerequisites
+## Kiến trúc
 
-- PostgreSQL DW running on port `5432`.
-- The DW ETL has completed successfully.
-- Python 3.11 or newer, or Docker Desktop.
-
-## Database setup
-
-Apply the analytics views after loading the warehouse:
-
-```bash
-psql -h localhost -p 5432 -U dw_user -d olist_dw \
-  -v ON_ERROR_STOP=1 -f sql/001_create_analytics_views.sql
+```text
+DW_ETL/PostgreSQL -> Express TypeScript API :3000 -> Streamlit UI :8501
 ```
 
-The expected grains and KPI rules are documented in
-[`docs/data_contract.md`](docs/data_contract.md).
+Contract API được mô tả tại [`docs/data_contract.md`](docs/data_contract.md).
 
-## Run locally
+## 1. Chạy Data Warehouse
+
+Từ repo `Dataware-House-Assignment/DW_ETL`:
+
+```bash
+docker compose up -d
+python -m etl.profile_sources
+python -m etl.load_dw
+```
+
+## 2. Tạo view review cho backend
+
+Từ repo `Dataware-House-Assignment`:
+
+```bash
+docker exec -i olist-dw-postgres psql -U dw_user -d olist_dw \
+  -v ON_ERROR_STOP=1 < be/src/sql/003__views.sql
+```
+
+## 3. Chạy backend API
+
+```bash
+cd be
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Kiểm tra:
+
+```bash
+curl http://localhost:3000/api/v1/health
+curl http://localhost:3000/api/v1/db-health
+```
+
+## 4. Chạy dashboard
 
 ```bash
 cp .env.example .env
@@ -41,39 +65,54 @@ python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open <http://localhost:8501>.
+Mở <http://localhost:8501>.
 
-On Windows PowerShell, activate the environment with:
+Windows PowerShell dùng:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-## Run with Docker
+## Chạy UI bằng Docker
 
-Copy `.env.example` to `.env`, set the database password, then run:
+Backend API vẫn phải chạy ở cổng `3000`:
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
 
-The Compose configuration uses `host.docker.internal` to reach the PostgreSQL
-container exposed by the separate DW repository.
+Compose tự đổi API URL thành `http://host.docker.internal:3000`.
 
 ## Tests
 
 ```bash
 pytest
+python -m compileall -q app.py pages src tests
 ```
 
-The evaluation and demonstration checklist is in
-[`docs/evaluation.md`](docs/evaluation.md).
+## Quy tắc KPI
 
-## Metric interpretation
+- `total_price` là tổng giá trị mặt hàng, không phải lợi nhuận/doanh thu thuần.
+- Sales mặc định lọc trạng thái `delivered`.
+- Số order sales là `COUNT(DISTINCT order_id)`.
+- Delivery chỉ tính các order có `is_delivery_eligible = true`.
+- `late_rate` từ delivery API là phần trăm.
+- `low_review_rate` từ review API là tỷ lệ 0–1; UI nhân 100 để hiển thị.
+- Không quy KPI giao trễ cho seller vì delivery fact có grain order.
 
-- `item_value` is source item price, not profit or net revenue.
-- Seller order counts use `COUNT(DISTINCT order_id)`.
-- Delivery rates use only eligible delivered orders in the denominator.
-- Delivery delays are not attributed to individual sellers.
-- Review facts are aggregated before joining to order-grain analytical data.
+## Cấu trúc
+
+```text
+app.py                         # Executive overview
+pages/1_Sales_OLAP.py         # Sales roll-up/drill-down
+pages/2_Delivery_and_Reviews.py
+pages/3_Decision_Support.py
+pages/4_Evaluation.py
+src/api.py                     # HTTP client và cache
+src/filters.py                 # Bộ lọc dùng chung
+src/transform.py               # Chuẩn hóa payload OLAP thành DataFrame
+docs/data_contract.md
+docs/evaluation.md
+```
 

@@ -1,29 +1,38 @@
-# Evaluation checklist
+# Kế hoạch đánh giá
 
-## Correctness
+Trang `Evaluation` tự động chạy các kiểm tra dưới đây và đo thời gian phản hồi
+từng endpoint.
 
-- Reconcile row counts and KPI totals with the DW validation script.
-- Confirm the complete-data delayed-delivery rate is approximately 6.77%.
-- Confirm empty filters and zero denominators do not cause errors.
-- Confirm seller order counts use distinct orders.
+## Độ đúng
 
-## Performance
+- API health và database health trả `ok`.
+- Sales OLAP trả ít nhất một order.
+- `delivery.grand_total.eligible_orders` bằng `distribution.meta.total`.
+- Đối soát mốc ETL hiện tại:
+  - eligible orders: `96,470`;
+  - late orders: `6,534`;
+  - late rate: `6.77%`.
+- Review `group=flag` trả đủ `late` và `not_late`.
 
-- Record page load time for Overview, Sales, Delivery, and Decision Support.
-- Use `EXPLAIN (ANALYZE, BUFFERS)` for the slowest queries.
-- Add materialized aggregates only if the measured response time requires them.
+Nếu dữ liệu hoặc ETL thay đổi, mốc tham chiếu phải được cập nhật thay vì sửa
+dashboard để ép kết quả.
 
-## Decision usefulness
+## Hiệu năng
 
-- Demonstrate one monthly sales drill-down.
-- Demonstrate one high-delay customer-state segment.
-- Compare review scores for delayed and non-delayed eligible orders.
-- Explain that rule-based alerts prioritize investigation and do not prove causality.
+- Ghi nhận thời gian phản hồi của health, sales, delivery, distribution và review.
+- Dùng `EXPLAIN (ANALYZE, BUFFERS)` tại backend cho endpoint chậm.
+- Cache UI có TTL 5 phút; trang Evaluation cố ý gọi không cache để đo API thật.
 
-## Known limitations
+## Tính hữu ích
 
-- Full-refresh ETL and snapshot order status.
-- No payment or geolocation facts in the current warehouse.
-- No seller-level delivery attribution.
-- No seller history or incremental loading.
+- Demo roll-up/drill-down sales theo thời gian và seller geography.
+- Xác định customer state có tỷ lệ giao trễ cao với volume đủ lớn.
+- So sánh review của order trễ và không trễ.
+- DSS đưa ra danh sách ưu tiên và khuyến nghị, không khẳng định nhân quả.
 
+## Hạn chế
+
+- Order status là snapshot và ETL đang full refresh.
+- Chưa có payments, geolocation, SCD hoặc incremental load.
+- Không thể quy trách nhiệm giao trễ về seller từ mô hình V1.
+- Dữ liệu Olist là dữ liệu lịch sử, không phải dữ liệu vận hành hiện tại.

@@ -1,16 +1,9 @@
-from src.config import DatabaseSettings
+from src.config import DashboardSettings
 
 
-def test_sqlalchemy_url_escapes_credentials() -> None:
-    settings = DatabaseSettings(
-        host="localhost",
-        port=5432,
-        database="olist_dw",
-        user="dashboard user",
-        password="p@ss/word",
-    )
-    assert settings.sqlalchemy_url == (
-        "postgresql+psycopg://dashboard+user:p%40ss%2Fword@"
-        "localhost:5432/olist_dw"
-    )
-
+def test_api_base_url_has_no_trailing_slash(monkeypatch) -> None:
+    monkeypatch.setenv("API_BASE_URL", "http://localhost:3000/")
+    monkeypatch.setenv("API_TIMEOUT_SECONDS", "10")
+    settings = DashboardSettings.from_env()
+    assert settings.api_base_url == "http://localhost:3000"
+    assert settings.timeout_seconds == 10

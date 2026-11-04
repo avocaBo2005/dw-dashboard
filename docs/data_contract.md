@@ -1,23 +1,49 @@
-# Analytics data contract
+# Backend API contract
 
-The UI reads only from the `analytics` schema. The SQL in
-`sql/001_create_analytics_views.sql` creates the contract after the DW ETL has
-loaded the `dw` schema.
+UI sử dụng base URL trong `API_BASE_URL`, mặc định `http://localhost:3000`.
 
-| View | Grain | Purpose |
-| --- | --- | --- |
-| `v_sales_detail` | One order item | Sales value, freight, seller, product, status, and purchase time |
-| `v_delivery_detail` | One order | Delivery eligibility, duration, delay, customer geography, and status |
-| `v_review_order` | One order with reviews | Safe order-level review aggregation |
-| `v_review_delivery_detail` | One accepted review linked to an order | Review distribution and delivery comparison |
-| `v_decision_segments` | Purchase month and customer state | Rule-based decision-support prioritization |
+| Endpoint | Mục đích |
+| --- | --- |
+| `GET /api/v1/health` | Trạng thái API |
+| `GET /api/v1/db-health` | Trạng thái PostgreSQL |
+| `GET /api/v1/sale/analysis` | Sales OLAP |
+| `GET /api/v1/delivery/analysis` | Delivery OLAP |
+| `GET /api/v1/delivery/distribution` | Phân phối `delay_days` |
+| `GET /api/v1/reviews/by-delay` | Review theo bucket/flag độ trễ |
 
-## Metric rules
+## Sales
 
-- Item value is `SUM(price)` and is not profit or net revenue.
-- Seller order count is `COUNT(DISTINCT order_id)`.
-- Delivery denominators include only rows where `is_delivery_eligible = true`.
-- Delivery performance is not attributed to sellers because delivery is stored
-  at order grain and an order can contain items from multiple sellers.
-- Reviews are aggregated to order grain before joining to an order-level segment.
+Hierarchy:
+
+- `time`: `year -> quarter -> month`
+- `seller_geo`: `seller_state -> seller_city`
+- `product`: `category -> product`
+
+Measures: `total_price`, `total_freight`, `n_orders`, `n_items`.
+
+## Delivery
+
+Hierarchy:
+
+- `time`: `year -> quarter -> month`
+- `customer_geo`: `customer_state -> customer_city`
+
+Measures: `eligible_orders`, `late_orders`, `late_rate`,
+`avg_delivery_days`, `avg_delay_days`.
+
+Delivery API luôn giới hạn trên các order đủ điều kiện. `late_rate` là phần trăm.
+
+## Review
+
+`group=bucket` trả sáu nhóm từ `early_8plus` đến `late_8plus`.
+`group=flag` trả `not_late` và `late`. `low_review_rate` và `p0` nằm trong
+khoảng 0–1.
+
+## Grain và diễn giải
+
+- Sales: một order item; `n_orders` phải distinct.
+- Delivery: một order.
+- Review API tổng hợp review về order trước khi nối delivery.
+- Không cộng các subtotal trả về bởi `ROLLUP`; record `level=0` là grand total.
+- Không dùng delivery measures để xếp hạng seller.
 

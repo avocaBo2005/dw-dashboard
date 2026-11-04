@@ -1,126 +1,137 @@
+import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from src.database import query_dataframe
-from src.filters import multiselect_from_query, purchase_date_range
-from src.query_utils import add_in_filter
+from src.api import api_get
+from src.filters import analysis_options, date_params, purchase_date_range
+from src.transform import add_month_start, grand_total, level_frame
 from src.ui import configure_page, format_number, render_data_error
 
 
 configure_page("Delivery & Reviews", "🚚")
-st.title("Delivery & Customer Reviews")
+st.title("Giao hàng và đánh giá khách hàng")
+st.caption("Phân tích trên các đơn đủ điều kiện giao hàng ở grain order")
 
 try:
     date_from, date_to = purchase_date_range()
-    states = multiselect_from_query(
-        "Customer state",
-        "SELECT DISTINCT customer_state FROM analytics.v_delivery_detail "
-        "WHERE customer_state IS NOT NULL ORDER BY customer_state",
-        "customer_state",
+    common = date_params(date_from, date_to)
+    states = analysis_options(
+        "/api/v1/delivery/analysis", "customer_geo", "customer_state", common
     )
-    clauses = ["purchase_date BETWEEN :date_from AND :date_to"]
-    params = {"date_from": date_from, "date_to": date_to}
-    add_in_filter(clauses, params, "customer_state", states, "customer_state")
-    where_sql = " AND ".join(clauses)
+    selected_state = st.sidebar.selectbox("Customer state", ["Tất cả", *states])
+    filters = {
+        **common,
+        "state": None if selected_state == "Tất cả" else selected_state,
+    }
 
-    summary = query_dataframe(
-        f"""
-        SELECT COUNT(*) FILTER (WHERE is_delivery_eligible) AS eligible,
-               COUNT(*) FILTER (WHERE is_delivery_eligible AND is_delayed) AS delayed,
-               ROUND(100.0 * COUNT(*) FILTER (
-                   WHERE is_delivery_eligible AND is_delayed
-               ) / NULLIF(COUNT(*) FILTER (
-                   WHERE is_delivery_eligible
-               ), 0), 2) AS delayed_rate,
-               ROUND(AVG(delivery_days) FILTER (
-                   WHERE is_delivery_eligible
-               )::numeric, 2) AS avg_delivery_days
-        FROM analytics.v_delivery_detail
-        WHERE {where_sql}
-        """,
-        params,
-    ).iloc[0]
-    metrics = st.columns(4)
-    metrics[0].metric("Eligible orders", format_number(summary["eligible"]))
-    metrics[1].metric("Delayed orders", format_number(summary["delayed"]))
-    metrics[2].metric("Delayed rate", f"{format_number(summary['delayed_rate'], 2)}%")
-    metrics[3].metric("Average delivery days", format_number(summary["avg_delivery_days"], 2))
+    time_payload = api_get(
+        "/api/v1/delivery/analysis", {**filters, "dim": "time", "depth": 3}
+    )
+    geo_payload = api_get(
+        "/api/v1/delivery/analysis",
+        {**filters, "dim": "customer_geo", "depth": 2},
+    )
+    distribution = api_get(
+        "/api/v1/delivery/distribution",
+        {**filters, "dim": "time", "depth": 3},
+    )
+    review_bucket = api_get(
+        "/api/v1/reviews/by-delay", {**filters, "group": "bucket"}
+    )
+    review_flag = api_get(
+        "/api/v1/reviews/by-delay", {**filters, "group": "flag"}
+    )
 
-    monthly = query_dataframe(
-        f"""
-        SELECT DATE_TRUNC('month', purchase_date)::date AS month,
-               COUNT(*) FILTER (WHERE is_delivery_eligible) AS eligible_orders,
-               ROUND(100.0 * COUNT(*) FILTER (
-                   WHERE is_delivery_eligible AND is_delayed
-               ) / NULLIF(COUNT(*) FILTER (
-                   WHERE is_delivery_eligible
-               ), 0), 2) AS delayed_rate_pct
-        FROM analytics.v_delivery_detail
-        WHERE {where_sql}
-        GROUP BY DATE_TRUNC('month', purchase_date)::date
-        ORDER BY month
-        """,
-        params,
-    )
-    state_data = query_dataframe(
-        f"""
-        SELECT customer_state,
-               COUNT(*) FILTER (WHERE is_delivery_eligible) AS eligible_orders,
-               ROUND(100.0 * COUNT(*) FILTER (
-                   WHERE is_delivery_eligible AND is_delayed
-               ) / NULLIF(COUNT(*) FILTER (
-                   WHERE is_delivery_eligible
-               ), 0), 2) AS delayed_rate_pct
-        FROM analytics.v_delivery_detail
-        WHERE {where_sql}
-        GROUP BY customer_state
-        HAVING COUNT(*) FILTER (WHERE is_delivery_eligible) >= 30
-        ORDER BY delayed_rate_pct DESC
-        """,
-        params,
-    )
-    review_distribution = query_dataframe(
-        f"""
-        SELECT review_score, COUNT(*) AS reviews
-        FROM analytics.v_review_delivery_detail
-        WHERE {where_sql}
-        GROUP BY review_score
-        ORDER BY review_score
-        """,
-        params,
-    )
-    review_delay = query_dataframe(
-        f"""
-        SELECT CASE WHEN is_delayed THEN 'Delayed' ELSE 'Not delayed' END AS delivery_group,
-               ROUND(AVG(review_score)::numeric, 2) AS avg_review_score,
-               COUNT(*) AS reviews
-        FROM analytics.v_review_delivery_detail
-        WHERE {where_sql} AND is_delivery_eligible
-        GROUP BY CASE WHEN is_delayed THEN 'Delayed' ELSE 'Not delayed' END
-        """,
-        params,
-    )
+    total = grand_total(time_payload)
+    summary = distribution.get("summary", {})
+    review_meta = review_flag.get("meta", {})
+    metrics = st.columns(5)
+    metrics[0].metric("Đơn đủ điều kiện", format_number(total.get("eligible_orders")))
+    metrics[1].metric("Đơn giao trễ", format_number(summary.get("late_orders")))
+    metrics[2].metric("Tỷ lệ giao trễ", f"{format_number(summary.get('late_rate'), 2)}%")
+    metrics[3].metric("Ngày giao TB", format_number(total.get("avg_delivery_days"), 2))
+    metrics[4].metric("Điểm review khi trễ", format_number(review_meta.get("avg_late"), 2))
+
+    monthly = add_month_start(level_frame(time_payload, 3))
+    state_data = level_frame(geo_payload, 1)
+    city_data = level_frame(geo_payload, 2)
+    buckets = pd.DataFrame(distribution.get("data", []))
+    reviews = pd.DataFrame(review_bucket.get("data", []))
+    if not reviews.empty:
+        reviews["low_review_pct"] = reviews["low_review_rate"] * 100
 
     st.plotly_chart(
-        px.line(monthly, x="month", y="delayed_rate_pct", markers=True,
-                title="Monthly delayed-delivery rate"),
-        use_container_width=True,
+        px.line(
+            monthly,
+            x="month_start",
+            y="late_rate",
+            markers=True,
+            title="Tỷ lệ giao trễ theo tháng",
+            labels={"month_start": "Tháng", "late_rate": "Tỷ lệ trễ (%)"},
+        ),
+        width="stretch",
     )
     left, right = st.columns(2)
     left.plotly_chart(
-        px.bar(state_data, x="customer_state", y="delayed_rate_pct",
-               title="Delayed rate by customer state"),
-        use_container_width=True,
+        px.bar(
+            state_data.nlargest(15, "late_rate"),
+            x="customer_state",
+            y="late_rate",
+            hover_data=["eligible_orders", "late_orders"],
+            title="Tỷ lệ giao trễ theo customer state",
+        ),
+        width="stretch",
     )
     right.plotly_chart(
-        px.bar(review_distribution, x="review_score", y="reviews",
-               title="Review score distribution"),
-        use_container_width=True,
+        px.bar(
+            buckets,
+            x="label",
+            y="n_orders",
+            color="side",
+            title="Phân phối sớm / đúng hạn / trễ",
+        ),
+        width="stretch",
     )
-    st.plotly_chart(
-        px.bar(review_delay, x="delivery_group", y="avg_review_score",
-               color="delivery_group", title="Review score by delivery outcome"),
-        use_container_width=True,
+    left, right = st.columns(2)
+    left.plotly_chart(
+        px.bar(
+            reviews,
+            x="label",
+            y="avg_score",
+            color="group",
+            title="Điểm review theo nhóm độ trễ",
+        ),
+        width="stretch",
+    )
+    right.plotly_chart(
+        px.bar(
+            reviews,
+            x="label",
+            y="low_review_pct",
+            color="group",
+            title="Tỷ lệ review thấp theo nhóm độ trễ",
+        ),
+        width="stretch",
+    )
+
+    st.subheader("Drill-down customer state → customer city")
+    city_columns = [
+        column
+        for column in [
+            "customer_state",
+            "customer_city",
+            "eligible_orders",
+            "late_orders",
+            "late_rate",
+            "avg_delivery_days",
+            "avg_delay_days",
+        ]
+        if column in city_data.columns
+    ]
+    st.dataframe(
+        city_data.nlargest(100, "eligible_orders")[city_columns],
+        width="stretch",
+        hide_index=True,
     )
 except Exception as exc:
     render_data_error(exc)

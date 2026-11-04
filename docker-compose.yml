@@ -6,7 +6,6 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_HOST: host.docker.internal
+      API_BASE_URL: http://host.docker.internal:3000
     extra_hosts:
       - "host.docker.internal:host-gateway"
-

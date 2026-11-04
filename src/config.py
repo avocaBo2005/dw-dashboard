@@ -1,54 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from urllib.parse import quote_plus
+from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
 
 @dataclass(frozen=True)
-class DatabaseSettings:
-    host: str
-    port: int
-    database: str
-    user: str
-    password: str
-    schema: str = "analytics"
+class DashboardSettings:
+    api_base_url: str
+    timeout_seconds: float = 15.0
 
     @classmethod
-    def from_env(cls) -> "DatabaseSettings":
+    def from_env(cls) -> "DashboardSettings":
         load_dotenv()
-        required = {
-            "POSTGRES_HOST": os.getenv("POSTGRES_HOST"),
-            "POSTGRES_DB": os.getenv("POSTGRES_DB"),
-            "POSTGRES_USER": os.getenv("POSTGRES_USER"),
-            "POSTGRES_PASSWORD": os.getenv("POSTGRES_PASSWORD"),
-        }
-        missing = [name for name, value in required.items() if not value]
-        if missing:
-            raise RuntimeError(
-                "Missing database settings: " + ", ".join(sorted(missing))
-            )
+        api_base_url = os.getenv("API_BASE_URL", "http://localhost:3000").rstrip("/")
+        parsed_url = urlparse(api_base_url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            raise RuntimeError("API_BASE_URL must be a valid HTTP(S) URL")
         try:
-            port = int(os.getenv("POSTGRES_PORT", "5432"))
+            timeout_seconds = float(os.getenv("API_TIMEOUT_SECONDS", "15"))
         except ValueError as exc:
-            raise RuntimeError("POSTGRES_PORT must be an integer") from exc
-        return cls(
-            host=required["POSTGRES_HOST"] or "",
-            port=port,
-            database=required["POSTGRES_DB"] or "",
-            user=required["POSTGRES_USER"] or "",
-            password=required["POSTGRES_PASSWORD"] or "",
-            schema=os.getenv("POSTGRES_SCHEMA", "analytics"),
-        )
-
-    @property
-    def sqlalchemy_url(self) -> str:
-        user = quote_plus(self.user)
-        password = quote_plus(self.password)
-        return (
-            f"postgresql+psycopg://{user}:{password}@"
-            f"{self.host}:{self.port}/{self.database}"
-        )
-
+            raise RuntimeError("API_TIMEOUT_SECONDS must be a number") from exc
+        if timeout_seconds <= 0:
+            raise RuntimeError("API_TIMEOUT_SECONDS must be positive")
+        return cls(api_base_url=api_base_url, timeout_seconds=timeout_seconds)
