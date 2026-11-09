@@ -65,3 +65,8 @@ def add_month_start(frame: pd.DataFrame) -> pd.DataFrame:
         errors="coerce",
     )
     return result.sort_values("month_start")
+
+
+def has_columns(frame: pd.DataFrame, *columns: str) -> bool:
+    """Return whether a non-empty frame contains every column needed by a view."""
+    return not frame.empty and set(columns).issubset(frame.columns)

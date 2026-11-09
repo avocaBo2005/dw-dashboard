@@ -1,4 +1,6 @@
-from src.transform import analysis_frame, grand_total, level_frame
+import pandas as pd
+
+from src.transform import analysis_frame, grand_total, has_columns, level_frame
 
 
 def test_flattens_sales_analysis_payload() -> None:
@@ -41,3 +43,13 @@ def test_flattens_delivery_measures() -> None:
         ]
     }
     assert grand_total(payload)["eligible_orders"] == 5
+
+
+def test_has_columns_rejects_empty_or_incomplete_frames() -> None:
+    assert not has_columns(pd.DataFrame(), "month_start", "total_price")
+    assert not has_columns(pd.DataFrame({"total_price": [1]}), "month_start", "total_price")
+    assert has_columns(
+        pd.DataFrame({"month_start": ["2018-01-01"], "total_price": [1]}),
+        "month_start",
+        "total_price",
+    )

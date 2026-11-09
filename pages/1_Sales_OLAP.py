@@ -8,7 +8,7 @@ from src.filters import (
     purchase_date_range,
     sales_status_filter,
 )
-from src.transform import add_month_start, grand_total, level_frame
+from src.transform import add_month_start, grand_total, has_columns, level_frame
 from src.ui import configure_page, format_number, render_data_error
 
 
@@ -49,49 +49,69 @@ try:
     )
 
     total = grand_total(time_payload)
+    order_count = int(total.get("n_orders") or 0)
     metrics = st.columns(4)
-    metrics[0].metric("Giá trị mặt hàng", format_number(total.get("total_price"), 2))
-    metrics[1].metric("Phí vận chuyển", format_number(total.get("total_freight"), 2))
-    metrics[2].metric("Đơn phân biệt", format_number(total.get("n_orders")))
-    metrics[3].metric("Số item", format_number(total.get("n_items")))
+    metrics[0].metric("Giá trị mặt hàng", format_number(total.get("total_price") or 0, 2))
+    metrics[1].metric("Phí vận chuyển", format_number(total.get("total_freight") or 0, 2))
+    metrics[2].metric("Đơn phân biệt", format_number(order_count))
+    metrics[3].metric("Số item", format_number(total.get("n_items") or 0))
 
     monthly = add_month_start(level_frame(time_payload, 3))
     states = level_frame(geo_payload, 1)
     cities = level_frame(geo_payload, 2)
     categories = level_frame(product_payload, 1)
 
-    st.plotly_chart(
-        px.line(
-            monthly,
-            x="month_start",
-            y=["total_price", "total_freight"],
-            markers=True,
-            title="Roll-up thời gian: giá trị mặt hàng và phí vận chuyển",
-            labels={"month_start": "Tháng", "value": "Giá trị", "variable": "Measure"},
-        ),
-        width="stretch",
-    )
+    if order_count == 0:
+        selected_statuses = ", ".join(statuses)
+        st.info(
+            "Không có dữ liệu bán hàng phù hợp với bộ lọc hiện tại "
+            f"(trạng thái: {selected_statuses}). Hãy chọn trạng thái hoặc khoảng ngày khác."
+        )
+        st.stop()
+
+    if has_columns(monthly, "month_start", "total_price", "total_freight"):
+        st.plotly_chart(
+            px.line(
+                monthly,
+                x="month_start",
+                y=["total_price", "total_freight"],
+                markers=True,
+                title="Roll-up thời gian: giá trị mặt hàng và phí vận chuyển",
+                labels={"month_start": "Tháng", "value": "Giá trị", "variable": "Measure"},
+            ),
+            width="stretch",
+        )
+    else:
+        st.info("Không có dữ liệu theo tháng cho bộ lọc hiện tại.")
+
     left, right = st.columns(2)
-    left.plotly_chart(
-        px.bar(
-            states.nlargest(15, "total_price").sort_values("total_price"),
-            x="total_price",
-            y="seller_state",
-            orientation="h",
-            title="Giá trị mặt hàng theo seller state",
-        ),
-        width="stretch",
-    )
-    right.plotly_chart(
-        px.bar(
-            categories.nlargest(15, "total_price").sort_values("total_price"),
-            x="total_price",
-            y="category",
-            orientation="h",
-            title="Top danh mục sản phẩm",
-        ),
-        width="stretch",
-    )
+    if has_columns(states, "seller_state", "total_price"):
+        left.plotly_chart(
+            px.bar(
+                states.nlargest(15, "total_price").sort_values("total_price"),
+                x="total_price",
+                y="seller_state",
+                orientation="h",
+                title="Giá trị mặt hàng theo seller state",
+            ),
+            width="stretch",
+        )
+    else:
+        left.info("Không có dữ liệu theo seller state.")
+
+    if has_columns(categories, "category", "total_price"):
+        right.plotly_chart(
+            px.bar(
+                categories.nlargest(15, "total_price").sort_values("total_price"),
+                x="total_price",
+                y="category",
+                orientation="h",
+                title="Top danh mục sản phẩm",
+            ),
+            width="stretch",
+        )
+    else:
+        right.info("Không có dữ liệu theo danh mục sản phẩm.")
 
     st.subheader("Drill-down seller state → seller city")
     city_columns = [
@@ -106,11 +126,14 @@ try:
         ]
         if column in cities.columns
     ]
-    st.dataframe(
-        cities.nlargest(100, "total_price")[city_columns],
-        width="stretch",
-        hide_index=True,
-    )
+    if has_columns(cities, "total_price") and city_columns:
+        st.dataframe(
+            cities.nlargest(100, "total_price")[city_columns],
+            width="stretch",
+            hide_index=True,
+        )
+    else:
+        st.info("Không có dữ liệu drill-down theo seller city.")
     st.warning(
         "Số đơn theo seller dùng COUNT(DISTINCT order_id). Không gán KPI giao trễ "
         "cho seller vì delivery fact có grain order."
