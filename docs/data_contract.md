@@ -10,6 +10,8 @@ UI sử dụng base URL trong `API_BASE_URL`, mặc định `http://localhost:30
 | `GET /api/v1/delivery/analysis` | Delivery OLAP |
 | `GET /api/v1/delivery/distribution` | Phân phối `delay_days` |
 | `GET /api/v1/reviews/by-delay` | Review theo bucket/flag độ trễ |
+| `GET /api/v1/dss/config` | Trọng số, rule và setting của knowledge base |
+| `GET /api/v1/dss/seller-scorecard` | Xếp hạng và khuyến nghị seller |
 
 ## Sales
 
@@ -46,4 +48,15 @@ khoảng 0–1.
 - Review API tổng hợp review về order trước khi nối delivery.
 - Không cộng các subtotal trả về bởi `ROLLUP`; record `level=0` là grand total.
 - Không dùng delivery measures để xếp hạng seller.
+
+## DSS seller scorecard
+
+- Tiêu chí: `gmv` (higher), `late_rate` (lower), `low_review_rate` (lower).
+- Seller chỉ được chấm điểm khi đạt `min_eligible_orders`; seller còn lại được gắn
+  nhãn thiếu dữ liệu thay vì suy diễn từ mẫu nhỏ.
+- `late_rate` và `low_review_rate` của scorecard là tỷ lệ 0–1; UI nhân 100 để hiển thị.
+- Backend chuẩn hóa tổng trọng số trước khi tính điểm. UI có thể truyền override theo
+  dạng `weights=gmv:0.3,late_rate:0.35,low_review_rate:0.35`.
+- Scorecard chỉ dùng order có đúng một seller để bảo toàn grain khi nối sales,
+  delivery và review.
 

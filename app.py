@@ -4,18 +4,33 @@ import streamlit as st
 
 from src.api import api_get
 from src.filters import date_params, purchase_date_range, sales_status_filter
-from src.transform import add_month_start, grand_total, level_frame
-from src.ui import configure_page, format_number, render_data_error
+from src.transform import add_month_start, grand_total, has_columns, level_frame
+from src.ui import (
+    configure_page,
+    format_number,
+    page_header,
+    render_data_error,
+    section_intro,
+    status_badge,
+    style_figure,
+)
 
 
 configure_page("Olist DW Dashboard", "📦")
-st.title("Olist Data Warehouse Dashboard")
-st.caption("Tổng quan OLAP về bán hàng, giao hàng và đánh giá khách hàng")
+page_header(
+    "Olist Performance Hub",
+    "Tổng quan điều hành về bán hàng, giao hàng và trải nghiệm khách hàng từ kho dữ liệu đa chiều.",
+    "Executive overview · Olist",
+)
 
 try:
     health = api_get("/api/v1/health")
     health_status = health.get("data", {}).get("status", "unknown")
-    st.sidebar.success(f"API: {health_status}")
+    with st.sidebar:
+        status_badge(
+            f"API · {str(health_status).upper()}",
+            "ok" if health_status == "ok" else "warn",
+        )
 
     date_from, date_to = purchase_date_range()
     statuses = sales_status_filter()
@@ -80,53 +95,55 @@ try:
     categories = level_frame(category_payload, 1).nlargest(10, "total_price")
     buckets = pd.DataFrame(distribution.get("data", []))
 
+    section_intro("Xu hướng chính", "So sánh diễn biến giá trị mặt hàng và tỷ lệ giao trễ theo tháng.")
     left, right = st.columns(2)
-    left.plotly_chart(
-        px.line(
+    if has_columns(sales_monthly, "month_start", "total_price"):
+        left.plotly_chart(style_figure(px.line(
             sales_monthly,
             x="month_start",
             y="total_price",
             markers=True,
             title="Giá trị mặt hàng theo tháng",
             labels={"month_start": "Tháng", "total_price": "Giá trị mặt hàng"},
-        ),
-        width="stretch",
-    )
-    right.plotly_chart(
-        px.line(
+        )), width="stretch")
+    else:
+        left.info("Không có dữ liệu sales theo tháng cho bộ lọc hiện tại.")
+    if has_columns(delivery_monthly, "month_start", "late_rate"):
+        right.plotly_chart(style_figure(px.line(
             delivery_monthly,
             x="month_start",
             y="late_rate",
             markers=True,
             title="Tỷ lệ giao trễ theo tháng",
             labels={"month_start": "Tháng", "late_rate": "Tỷ lệ trễ (%)"},
-        ),
-        width="stretch",
-    )
+        )), width="stretch")
+    else:
+        right.info("Không có dữ liệu delivery theo tháng cho bộ lọc hiện tại.")
 
+    section_intro("Cơ cấu và phân phối", "Top danh mục theo giá trị mặt hàng và phân bố chênh lệch ngày giao.")
     left, right = st.columns(2)
-    left.plotly_chart(
-        px.bar(
+    if has_columns(categories, "total_price", "category"):
+        left.plotly_chart(style_figure(px.bar(
             categories.sort_values("total_price"),
             x="total_price",
             y="category",
             orientation="h",
             title="10 danh mục có giá trị mặt hàng cao nhất",
             labels={"total_price": "Giá trị mặt hàng", "category": "Danh mục"},
-        ),
-        width="stretch",
-    )
-    right.plotly_chart(
-        px.bar(
+        )), width="stretch")
+    else:
+        left.info("Không có dữ liệu danh mục cho bộ lọc hiện tại.")
+    if not buckets.empty and {"label", "n_orders", "side"}.issubset(buckets.columns):
+        right.plotly_chart(style_figure(px.bar(
             buckets,
             x="label",
             y="n_orders",
             color="side",
             title="Phân phối độ trễ giao hàng",
             labels={"label": "Nhóm giao hàng", "n_orders": "Số đơn"},
-        ),
-        width="stretch",
-    )
+        )), width="stretch")
+    else:
+        right.info("Không có dữ liệu phân phối giao hàng.")
 
     st.info(
         "Giá trị mặt hàng là SUM(price), không phải lợi nhuận hoặc doanh thu thuần. "

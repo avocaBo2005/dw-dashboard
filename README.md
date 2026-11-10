@@ -9,8 +9,10 @@ backend; UI không đọc CSV và không kết nối PostgreSQL trực tiếp.
 - OLAP sales theo hierarchy thời gian, seller geography và product.
 - Delivery OLAP theo thời gian và customer geography.
 - Phân phối giao sớm/đúng hạn/trễ và review theo độ trễ.
-- DSS rule-based ưu tiên customer state cần điều tra.
-- Trang đánh giá API, đối soát KPI và đo thời gian phản hồi.
+- DSS scorecard xếp hạng seller bằng trọng số/rule cấu hình ở backend, hỗ trợ mô phỏng
+  trọng số và xuất danh sách hành động CSV.
+- Trang đánh giá end-to-end API, database, OLAP và DSS; đối soát KPI, phân loại thời
+  gian phản hồi và xuất kết quả CSV.
 
 ## Kiến trúc
 
@@ -100,6 +102,7 @@ python -m compileall -q app.py pages src tests
 - `late_rate` từ delivery API là phần trăm.
 - `low_review_rate` từ review API là tỷ lệ 0–1; UI nhân 100 để hiển thị.
 - Không quy KPI giao trễ cho seller vì delivery fact có grain order.
+- DSS seller chỉ dùng order một seller và yêu cầu đủ số mẫu trước khi chấm điểm.
 
 ## Cấu trúc
 

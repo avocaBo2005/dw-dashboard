@@ -13,13 +13,15 @@ từng endpoint.
   - late orders: `6,534`;
   - late rate: `6.77%`.
 - Review `group=flag` trả đủ `late` và `not_late`.
+- DSS config có trọng số hợp lệ và seller scorecard trả dữ liệu.
 
 Nếu dữ liệu hoặc ETL thay đổi, mốc tham chiếu phải được cập nhật thay vì sửa
 dashboard để ép kết quả.
 
 ## Hiệu năng
 
-- Ghi nhận thời gian phản hồi của health, sales, delivery, distribution và review.
+- Ghi nhận thời gian phản hồi của health, sales, delivery, distribution, review và DSS.
+- Phân loại: tốt `<= 500 ms`, chấp nhận `<= 1.5 s`, trên `1.5 s` cần tối ưu.
 - Dùng `EXPLAIN (ANALYZE, BUFFERS)` tại backend cho endpoint chậm.
 - Cache UI có TTL 5 phút; trang Evaluation cố ý gọi không cache để đo API thật.
 
@@ -28,7 +30,8 @@ dashboard để ép kết quả.
 - Demo roll-up/drill-down sales theo thời gian và seller geography.
 - Xác định customer state có tỷ lệ giao trễ cao với volume đủ lớn.
 - So sánh review của order trễ và không trễ.
-- DSS đưa ra danh sách ưu tiên và khuyến nghị, không khẳng định nhân quả.
+- DSS đưa ra scorecard seller có giải thích trọng số, rule, danh sách hành động và
+  file CSV tải xuống; kết quả không khẳng định nhân quả.
 
 ## Hạn chế
 

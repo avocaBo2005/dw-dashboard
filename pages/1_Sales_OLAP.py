@@ -9,12 +9,18 @@ from src.filters import (
     sales_status_filter,
 )
 from src.transform import add_month_start, grand_total, has_columns, level_frame
-from src.ui import configure_page, format_number, render_data_error
+from src.ui import (
+    configure_page, dataframe_config, format_number, page_header,
+    render_data_error, section_intro, style_figure,
+)
 
 
 configure_page("Sales OLAP", "💰")
-st.title("Phân tích OLAP bán hàng")
-st.caption("Roll-up và drill-down theo thời gian, địa lý seller và sản phẩm")
+page_header(
+    "Phân tích OLAP bán hàng",
+    "Roll-up và drill-down theo thời gian, địa lý seller và danh mục sản phẩm.",
+    "OLAP cube · Sales item",
+)
 
 try:
     date_from, date_to = purchase_date_range()
@@ -70,50 +76,42 @@ try:
         st.stop()
 
     if has_columns(monthly, "month_start", "total_price", "total_freight"):
-        st.plotly_chart(
-            px.line(
+        section_intro("Xu hướng thời gian", "Mức tháng trong hierarchy year → quarter → month.")
+        st.plotly_chart(style_figure(px.line(
                 monthly,
                 x="month_start",
                 y=["total_price", "total_freight"],
                 markers=True,
                 title="Roll-up thời gian: giá trị mặt hàng và phí vận chuyển",
                 labels={"month_start": "Tháng", "value": "Giá trị", "variable": "Measure"},
-            ),
-            width="stretch",
-        )
+            )), width="stretch")
     else:
         st.info("Không có dữ liệu theo tháng cho bộ lọc hiện tại.")
 
     left, right = st.columns(2)
     if has_columns(states, "seller_state", "total_price"):
-        left.plotly_chart(
-            px.bar(
+        left.plotly_chart(style_figure(px.bar(
                 states.nlargest(15, "total_price").sort_values("total_price"),
                 x="total_price",
                 y="seller_state",
                 orientation="h",
                 title="Giá trị mặt hàng theo seller state",
-            ),
-            width="stretch",
-        )
+            )), width="stretch")
     else:
         left.info("Không có dữ liệu theo seller state.")
 
     if has_columns(categories, "category", "total_price"):
-        right.plotly_chart(
-            px.bar(
+        right.plotly_chart(style_figure(px.bar(
                 categories.nlargest(15, "total_price").sort_values("total_price"),
                 x="total_price",
                 y="category",
                 orientation="h",
                 title="Top danh mục sản phẩm",
-            ),
-            width="stretch",
-        )
+            )), width="stretch")
     else:
         right.info("Không có dữ liệu theo danh mục sản phẩm.")
 
-    st.subheader("Drill-down seller state → seller city")
+    section_intro("Drill-down seller state → seller city", "100 thành phố có giá trị mặt hàng cao nhất trong phạm vi lọc.")
     city_columns = [
         column
         for column in [
@@ -131,6 +129,7 @@ try:
             cities.nlargest(100, "total_price")[city_columns],
             width="stretch",
             hide_index=True,
+            column_config=dataframe_config(),
         )
     else:
         st.info("Không có dữ liệu drill-down theo seller city.")

@@ -4,13 +4,19 @@ import streamlit as st
 
 from src.api import api_get
 from src.filters import analysis_options, date_params, purchase_date_range
-from src.transform import add_month_start, grand_total, level_frame
-from src.ui import configure_page, format_number, render_data_error
+from src.transform import add_month_start, grand_total, has_columns, level_frame
+from src.ui import (
+    configure_page, dataframe_config, format_number, page_header,
+    render_data_error, section_intro, style_figure,
+)
 
 
 configure_page("Delivery & Reviews", "🚚")
-st.title("Giao hàng và đánh giá khách hàng")
-st.caption("Phân tích trên các đơn đủ điều kiện giao hàng ở grain order")
+page_header(
+    "Giao hàng và trải nghiệm",
+    "Phân tích độ trễ và phản hồi khách hàng trên các đơn đủ điều kiện ở grain order.",
+    "OLAP cube · Delivery order",
+)
 
 try:
     date_from, date_to = purchase_date_range()
@@ -60,61 +66,60 @@ try:
     if not reviews.empty:
         reviews["low_review_pct"] = reviews["low_review_rate"] * 100
 
-    st.plotly_chart(
-        px.line(
+    section_intro("Xu hướng giao hàng", "Tỷ lệ trễ được tính trên các đơn đủ điều kiện giao hàng.")
+    if has_columns(monthly, "month_start", "late_rate"):
+        st.plotly_chart(style_figure(px.line(
             monthly,
             x="month_start",
             y="late_rate",
             markers=True,
             title="Tỷ lệ giao trễ theo tháng",
             labels={"month_start": "Tháng", "late_rate": "Tỷ lệ trễ (%)"},
-        ),
-        width="stretch",
-    )
+        )), width="stretch")
+    else:
+        st.info("Không có dữ liệu delivery theo tháng cho bộ lọc hiện tại.")
     left, right = st.columns(2)
-    left.plotly_chart(
-        px.bar(
+    if has_columns(state_data, "customer_state", "late_rate"):
+        left.plotly_chart(style_figure(px.bar(
             state_data.nlargest(15, "late_rate"),
             x="customer_state",
             y="late_rate",
             hover_data=["eligible_orders", "late_orders"],
             title="Tỷ lệ giao trễ theo customer state",
-        ),
-        width="stretch",
-    )
-    right.plotly_chart(
-        px.bar(
+        )), width="stretch")
+    else:
+        left.info("Không có dữ liệu theo customer state.")
+    if not buckets.empty and {"label", "n_orders", "side"}.issubset(buckets.columns):
+        right.plotly_chart(style_figure(px.bar(
             buckets,
             x="label",
             y="n_orders",
             color="side",
             title="Phân phối sớm / đúng hạn / trễ",
-        ),
-        width="stretch",
-    )
+        )), width="stretch")
+    else:
+        right.info("Không có dữ liệu phân phối độ trễ.")
     left, right = st.columns(2)
-    left.plotly_chart(
-        px.bar(
+    if not reviews.empty and {"label", "avg_score", "group"}.issubset(reviews.columns):
+        left.plotly_chart(style_figure(px.bar(
             reviews,
             x="label",
             y="avg_score",
             color="group",
             title="Điểm review theo nhóm độ trễ",
-        ),
-        width="stretch",
-    )
-    right.plotly_chart(
-        px.bar(
+        )), width="stretch")
+        right.plotly_chart(style_figure(px.bar(
             reviews,
             x="label",
             y="low_review_pct",
             color="group",
             title="Tỷ lệ review thấp theo nhóm độ trễ",
-        ),
-        width="stretch",
-    )
+        )), width="stretch")
+    else:
+        left.info("Không có dữ liệu review theo độ trễ.")
+        right.info("Không có dữ liệu review theo độ trễ.")
 
-    st.subheader("Drill-down customer state → customer city")
+    section_intro("Drill-down customer state → customer city", "100 thành phố có nhiều đơn đủ điều kiện nhất.")
     city_columns = [
         column
         for column in [
@@ -128,11 +133,13 @@ try:
         ]
         if column in city_data.columns
     ]
-    st.dataframe(
-        city_data.nlargest(100, "eligible_orders")[city_columns],
-        width="stretch",
-        hide_index=True,
-    )
+    if has_columns(city_data, "eligible_orders") and city_columns:
+        st.dataframe(
+            city_data.nlargest(100, "eligible_orders")[city_columns],
+            width="stretch", hide_index=True, column_config=dataframe_config(),
+        )
+    else:
+        st.info("Không có dữ liệu drill-down theo customer city.")
 except Exception as exc:
     render_data_error(exc)
 
