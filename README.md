@@ -8,9 +8,12 @@ backend; UI không đọc CSV và không kết nối PostgreSQL trực tiếp.
 - Tổng quan KPI sales, delivery và review.
 - OLAP sales theo hierarchy thời gian, seller geography và product.
 - Delivery OLAP theo thời gian và customer geography.
+- Pivot tùy biến cho Sales và Delivery với heatmap, ma trận tổng hợp và xuất CSV.
 - Phân phối giao sớm/đúng hạn/trễ và review theo độ trễ.
 - DSS scorecard xếp hạng seller bằng trọng số/rule cấu hình ở backend, hỗ trợ mô phỏng
   trọng số và xuất danh sách hành động CSV.
+- Delivery Buffer so sánh hiện trạng, buffer chung và buffer theo bang, hiển thị
+  khoảng tin cậy, đường cong chính sách và trade-off safety margin.
 - Trang đánh giá end-to-end API, database, OLAP và DSS; đối soát KPI, phân loại thời
   gian phản hồi và xuất kết quả CSV.
 
@@ -101,6 +104,7 @@ python -m compileall -q app.py pages src tests
 - Delivery chỉ tính các order có `is_delivery_eligible = true`.
 - `late_rate` từ delivery API là phần trăm.
 - `low_review_rate` từ review API là tỷ lệ 0–1; UI nhân 100 để hiển thị.
+- `late_rate` từ Pivot và Delivery Buffer là tỷ lệ 0–1; UI nhân 100 để hiển thị.
 - Không quy KPI giao trễ cho seller vì delivery fact có grain order.
 - DSS seller chỉ dùng order một seller và yêu cầu đủ số mẫu trước khi chấm điểm.
 
@@ -111,8 +115,11 @@ app.py                         # Executive overview
 pages/1_Sales_OLAP.py         # Sales roll-up/drill-down
 pages/2_Delivery_and_Reviews.py
 pages/3_Decision_Support.py
-pages/4_Evaluation.py
+pages/4_Delivery_Buffer.py
+pages/5_Evaluation.py
 src/api.py                     # HTTP client và cache
+src/delivery_buffer.py         # Chuẩn hóa response Delivery Buffer
+src/pivot.py                   # Pivot explorer dùng metadata từ backend
 src/filters.py                 # Bộ lọc dùng chung
 src/transform.py               # Chuẩn hóa payload OLAP thành DataFrame
 docs/data_contract.md

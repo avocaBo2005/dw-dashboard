@@ -34,6 +34,19 @@ ENDPOINTS = [
     ("Review by delay", "/api/v1/reviews/by-delay", {"group": "flag"}),
     ("DSS config", "/api/v1/dss/config", None),
     ("DSS scorecard", "/api/v1/dss/seller-scorecard", {"limit": 10}),
+    ("Pivot metadata", "/api/v1/meta/pivot", None),
+    (
+        "Sales pivot",
+        "/api/v1/sale/pivot",
+        {"rows": "year", "cols": "category", "measure": "total_price"},
+    ),
+    (
+        "Delivery pivot",
+        "/api/v1/delivery/pivot",
+        {"rows": "year", "cols": "customer_state", "measure": "late_rate"},
+    ),
+    ("Delivery buffer", "/api/v1/dss/delivery-buffer", None),
+    ("Delivery buffer tradeoff", "/api/v1/dss/delivery-buffer/tradeoff", None),
 ]
 
 
@@ -182,12 +195,14 @@ with tab_correctness:
         - Đối soát tổng delivery giữa OLAP và distribution, tránh cộng nhầm subtotal từ `ROLLUP`.
         - So sánh eligible orders, late orders và late rate với mốc ETL đã xác nhận.
         - Xác nhận review có đủ hai nhóm và DSS trả scorecard cùng cấu hình trọng số.
+        - Kiểm tra cấu trúc matrix của Sales/Delivery Pivot, không phụ thuộc số liệu cố định.
+        - Kiểm tra Delivery Buffer có đủ ba chính sách, dữ liệu theo bang và trade-off hợp lệ.
         """
     )
 with tab_performance:
     st.markdown(
         """
-        - Đo trực tiếp 8 endpoint, không dùng cache 5 phút của dashboard.
+        - Đo trực tiếp 13 endpoint, không dùng cache 5 phút của dashboard.
         - Endpoint trên 1.5 giây cần được kiểm tra bằng `EXPLAIN (ANALYZE, BUFFERS)`.
         - Kết quả phụ thuộc máy chạy, kết nối và trạng thái cache của PostgreSQL nên cần ghi môi trường đo.
         """
@@ -198,6 +213,7 @@ with tab_usefulness:
         - Dashboard hỗ trợ roll-up/drill-down theo thời gian, địa lý và sản phẩm.
         - Delivery và review giúp xác định vùng có trải nghiệm kém với quy mô đủ lớn.
         - DSS xếp hạng seller, giải thích trọng số/rule và cung cấp hành động ưu tiên có thể tải xuống.
+        - Delivery Buffer so sánh hiện trạng, chính sách chung và chính sách theo bang.
         """
     )
 with tab_limits:
@@ -208,5 +224,6 @@ with tab_limits:
         - Seller score chỉ dùng order một seller để bảo toàn grain, vì vậy không bao phủ toàn bộ order.
         - Chưa tích hợp payments/geolocation; dữ liệu Olist là dữ liệu lịch sử.
         - DSS rule-based giúp ưu tiên điều tra, không chứng minh quan hệ nhân quả.
+        - Delivery Buffer giả định hành vi seller không đổi khi thay đổi ngày cam kết.
         """
     )

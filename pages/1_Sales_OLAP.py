@@ -8,6 +8,7 @@ from src.filters import (
     purchase_date_range,
     sales_status_filter,
 )
+from src.pivot import render_pivot_explorer
 from src.transform import add_month_start, grand_total, has_columns, level_frame
 from src.ui import (
     configure_page, dataframe_config, format_number, page_header,
@@ -133,6 +134,8 @@ try:
         )
     else:
         st.info("Không có dữ liệu drill-down theo seller city.")
+
+    render_pivot_explorer("sales", filters)
     st.warning(
         "Số đơn theo seller dùng COUNT(DISTINCT order_id). Không gán KPI giao trễ "
         "cho seller vì delivery fact có grain order."

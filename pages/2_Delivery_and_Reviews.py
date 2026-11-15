@@ -4,6 +4,7 @@ import streamlit as st
 
 from src.api import api_get
 from src.filters import analysis_options, date_params, purchase_date_range
+from src.pivot import render_pivot_explorer
 from src.transform import add_month_start, grand_total, has_columns, level_frame
 from src.ui import (
     configure_page, dataframe_config, format_number, page_header,
@@ -140,6 +141,8 @@ try:
         )
     else:
         st.info("Không có dữ liệu drill-down theo customer city.")
+
+    render_pivot_explorer("delivery", filters)
 except Exception as exc:
     render_data_error(exc)
 
